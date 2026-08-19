@@ -1,6 +1,12 @@
 #!/usr/bin/env Rscript
 
 # Reproducibility preflight for final journal run.
+if (!file.exists("config.R")) {
+  stop(
+    "Missing config.R. Copy config.R.example to config.R and fill in your ",
+    "local paths / parameters.\n  cp config.R.example config.R"
+  )
+}
 source("config.R")
 
 required <- c(

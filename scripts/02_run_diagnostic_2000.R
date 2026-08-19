@@ -24,48 +24,24 @@ suppressPackageStartupMessages({
   library(readr)
 })
 
-DATA_DIR <- "data"
-BENCH_DIR <- "benchmark_output"
-OUT_DIR <- "diagnostic_output"
+if (!file.exists("config.R")) {
+  stop(
+    "Missing config.R. Copy config.R.example to config.R and fill in your ",
+    "local paths / parameters.\n  cp config.R.example config.R"
+  )
+}
+source("config.R")
+source("scripts/utils.R")
 
-GMT <- c(
-  PRC2  = file.path(DATA_DIR, "BENPORATH_PRC2_TARGETS.v2026.1.Hs.gmt"),
-  SUZ12 = file.path(DATA_DIR, "BENPORATH_SUZ12_TARGETS.v2026.1.Hs.gmt"),
-  EED   = file.path(DATA_DIR, "BENPORATH_EED_TARGETS.v2026.1.Hs.gmt")
-)
+dir.create(DIAG_OUT_DIR, recursive = TRUE, showWarnings = FALSE)
 
-COMPASS_CSV <- file.path(DATA_DIR, "human_normal_all.csv")
-CONTEXT_CSV <- file.path(BENCH_DIR, "04_context_level_baseline_inputs.csv.gz")
-GENE_TSV <- file.path(BENCH_DIR, "03_gene_level_scores_COMPASS_and_baselines.tsv")
-
-TOP_K <- c(100L, 250L, 500L, 1000L)
-N_BOOT <- 2000L
-SEED <- 20260727L
-
-dir.create(OUT_DIR, recursive = TRUE, showWarnings = FALSE)
+CONTEXT_CSV <- file.path(OUT_DIR, "04_context_level_baseline_inputs.csv.gz")
+GENE_TSV <- file.path(OUT_DIR, "03_gene_level_scores_COMPASS_and_baselines.tsv")
 
 must_exist <- c(COMPASS_CSV, CONTEXT_CSV, GENE_TSV, unname(GMT))
 missing <- must_exist[!file.exists(must_exist)]
 if (length(missing) > 0) {
   stop("Missing required files:\n", paste(missing, collapse = "\n"))
-}
-
-normalize_gene <- function(x) toupper(trimws(as.character(x)))
-
-normalize_tissue <- function(x) {
-  z <- tolower(trimws(as.character(x)))
-  z <- gsub("_", "-", z, fixed = TRUE)
-  z <- gsub("[[:space:]]+", "-", z)
-  z <- gsub("-+", "-", z)
-  z[z == "testis"] <- "testicle"
-  z[z == "head-and neck"] <- "head-and-neck"
-  z
-}
-
-read_gmt_genes <- function(path) {
-  ln <- readLines(path, warn = FALSE)
-  ln <- ln[nchar(ln) > 0][1]
-  normalize_gene(strsplit(ln, "\t")[[1]][-(1:2)])
 }
 
 auc_rank <- function(y, score) {
@@ -77,28 +53,6 @@ auc_rank <- function(y, score) {
   if (n1 == 0 || n0 == 0) return(NA_real_)
   r <- rank(score, ties.method = "average")
   (sum(r[y == 1]) - n1 * (n1 + 1) / 2) / (n1 * n0)
-}
-
-average_precision_grouped <- function(y, score) {
-  ok <- is.finite(score) & !is.na(y)
-  y <- as.integer(y[ok])
-  score <- score[ok]
-  npos <- sum(y == 1)
-  if (npos == 0) return(NA_real_)
-
-  o <- order(score, decreasing = TRUE)
-  y <- y[o]
-  score <- score[o]
-
-  grp <- cumsum(c(TRUE, diff(score) != 0))
-  pos_by <- as.numeric(tapply(y, grp, sum))
-  n_by <- as.numeric(tapply(y, grp, length))
-  cp <- cumsum(pos_by)
-  cn <- cumsum(n_by)
-  precision <- cp / cn
-  recall <- cp / npos
-  delta_recall <- c(recall[1], diff(recall))
-  sum(delta_recall * precision)
 }
 
 calc_metrics <- function(df, methods, sets, analysis_name) {
@@ -261,7 +215,7 @@ full_diag <- gene_scores %>%
     EqualMean_missing0,
     AvailableMean,
     MeanRank_missing0,
-    RankProduct_missing0,
+    RankGeometricMean_missing0,
     MaxEvidence,
     StrictConcordance_proxy
   ) %>%
@@ -285,8 +239,8 @@ full_methods <- c(
 )
 
 full_res <- calc_metrics(full_diag, full_methods, sets, "full_canonical_universe")
-write_tsv(full_res$metrics, file.path(OUT_DIR, "01_full_metrics_with_single_modality.tsv"))
-write_tsv(full_res$topk, file.path(OUT_DIR, "02_full_topK_with_single_modality.tsv"))
+write_tsv(full_res$metrics, file.path(DIAG_OUT_DIR, "01_full_metrics_with_single_modality.tsv"))
+write_tsv(full_res$topk, file.path(DIAG_OUT_DIR, "02_full_topK_with_single_modality.tsv"))
 
 # ---------------------------------------------------------------------------
 # B. Provenance of the winning tissue for each baseline
@@ -340,7 +294,7 @@ for (m in prov_methods) {
 }
 
 provenance <- bind_rows(prov_rows)
-write_tsv(provenance, file.path(OUT_DIR, "03_topK_winning_context_provenance.tsv"))
+write_tsv(provenance, file.path(DIAG_OUT_DIR, "03_topK_winning_context_provenance.tsv"))
 
 # ---------------------------------------------------------------------------
 # C. Matched both-modality context benchmark
@@ -382,8 +336,8 @@ matched_res <- calc_metrics(
   "matched_both_modalities"
 )
 
-write_tsv(matched_res$metrics, file.path(OUT_DIR, "04_matched_both_metrics.tsv"))
-write_tsv(matched_res$topk, file.path(OUT_DIR, "05_matched_both_topK.tsv"))
+write_tsv(matched_res$metrics, file.path(DIAG_OUT_DIR, "04_matched_both_metrics.tsv"))
+write_tsv(matched_res$topk, file.path(DIAG_OUT_DIR, "05_matched_both_topK.tsv"))
 
 matched_summary <- tibble(
   item = c(
@@ -401,7 +355,7 @@ matched_summary <- tibble(
     sum(matched_gene$gene %in% sets$EED)
   )
 )
-write_tsv(matched_summary, file.path(OUT_DIR, "06_matched_both_summary.tsv"))
+write_tsv(matched_summary, file.path(DIAG_OUT_DIR, "06_matched_both_summary.tsv"))
 
 # ---------------------------------------------------------------------------
 # D. Paired bootstrap for all three reference sets
@@ -426,7 +380,7 @@ boot_full <- bootstrap_deltas(
   B = N_BOOT
 )
 
-write_tsv(boot_full, file.path(OUT_DIR, "07_bootstrap_all_sets_full.tsv"))
+write_tsv(boot_full, file.path(DIAG_OUT_DIR, "07_bootstrap_all_sets_full.tsv"))
 
 matched_boot_methods <- c(
   "COMPASS",
@@ -444,7 +398,7 @@ boot_matched <- bootstrap_deltas(
   B = N_BOOT
 )
 
-write_tsv(boot_matched, file.path(OUT_DIR, "08_bootstrap_all_sets_matched_both.tsv"))
+write_tsv(boot_matched, file.path(DIAG_OUT_DIR, "08_bootstrap_all_sets_matched_both.tsv"))
 
 # ---------------------------------------------------------------------------
 # E. Compact interpretation table
@@ -463,7 +417,7 @@ key <- full_res$metrics %>%
   select(reference_set, method, ROC_AUC, AP, AP_over_prevalence) %>%
   arrange(reference_set, desc(ROC_AUC))
 
-write_tsv(key, file.path(OUT_DIR, "09_key_diagnostic_comparison.tsv"))
+write_tsv(key, file.path(DIAG_OUT_DIR, "09_key_diagnostic_comparison.tsv"))
 
 cat("\nDiagnostic v3 completed.\n")
 cat("Please return the entire diagnostic_output folder.\n")

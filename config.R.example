@@ -1,0 +1,46 @@
+# ============================================================================
+# COMPASS configuration
+# Copy this file to config.R and fill in the actual paths / values before
+# running 00_preflight.R or 01_run_final_benchmark.R.
+#
+#   cp config.R.example config.R
+#
+# All analysis parameters are defined here so that every script shares the
+# same values without duplication.
+# ============================================================================
+
+# ---- Input paths ----
+COMPASS_CSV   <- "data/human_normal_all.csv"
+RNA_RDA       <- "data/1.5-rna_final_score.rda"
+CHIP_RDA      <- "data/4-chip_final_score.rda"
+RNA_FREQ_RDA  <- "data/1.3-rna_freq.rda"
+
+GMT <- c(
+  PRC2  = "data/BENPORATH_PRC2_TARGETS.v2026.1.Hs.gmt",
+  SUZ12 = "data/BENPORATH_SUZ12_TARGETS.v2026.1.Hs.gmt",
+  EED   = "data/BENPORATH_EED_TARGETS.v2026.1.Hs.gmt"
+)
+
+# ---- Output directories ----
+OUT_DIR       <- "results/benchmark_output"
+DIAG_OUT_DIR  <- "diagnostic_output"
+AUDIT_OUT_DIR <- "priority_audit_output"
+
+# ---- Analysis parameters ----
+GENE_BIOTYPE       <- "protein_coding"
+EXCLUDE_TISSUE     <- "esc"
+TOP_K              <- c(100L, 250L, 500L, 1000L)
+THESIS_ROC_BOOT_N  <- 1000L
+JOURNAL_ROC_BOOT_N <- 2000L
+N_BOOT             <- 2000L
+PRIMARY_REFERENCE  <- "PRC2"
+PRIMARY_K          <- 500L
+SEED               <- 20260727L
+WRITE_FULL_CONTEXT_TABLE <- FALSE
+RUN_MODE           <- "final_journal"
+
+# ---- Sanity-check thresholds (reproduced from thesis) ----
+EXPECTED_N            <- 18642L
+EXPECTED_POSITIVES    <- c(PRC2 = 626L, SUZ12 = 998L, EED = 1017L)
+EXPECTED_AUC          <- c(PRC2 = 0.882, SUZ12 = 0.862, EED = 0.813)
+AUC_TOLERANCE         <- 0.0015

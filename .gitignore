@@ -1,0 +1,13 @@
+# R
+.Rhistory
+.RData
+.Rproj.user
+
+# macOS
+.DS_Store
+
+# Large / regenerable outputs
+results/**/*.csv.gz
+results/**/*.pdf
+diagnostic_output/**
+priority_audit_output/**

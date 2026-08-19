@@ -21,30 +21,22 @@ suppressPackageStartupMessages({
   library(readr)
 })
 
-DATA_DIR <- "data"
-BENCH_DIR <- "benchmark_output"
-OUT_DIR <- "priority_audit_output"
+if (!file.exists("config.R")) {
+  stop(
+    "Missing config.R. Copy config.R.example to config.R and fill in your ",
+    "local paths / parameters.\n  cp config.R.example config.R"
+  )
+}
+source("config.R")
+source("scripts/utils.R")
 
-COMPASS_CSV <- file.path(DATA_DIR, "human_normal_all.csv")
-CONTEXT_CSV <- file.path(BENCH_DIR, "04_context_level_baseline_inputs.csv.gz")
-GENE_TSV <- file.path(BENCH_DIR, "03_gene_level_scores_COMPASS_and_baselines.tsv")
-METRICS_TSV <- file.path(BENCH_DIR, "06_reference_metrics.tsv")
+dir.create(AUDIT_OUT_DIR, recursive = TRUE, showWarnings = FALSE)
 
-TOP_K <- c(100L, 250L, 500L, 1000L)
 EPS <- 1e-10
 
-dir.create(OUT_DIR, recursive = TRUE, showWarnings = FALSE)
-
-normalize_gene <- function(x) toupper(trimws(as.character(x)))
-normalize_tissue <- function(x) {
-  z <- tolower(trimws(as.character(x)))
-  z <- gsub("_", "-", z, fixed = TRUE)
-  z <- gsub("[[:space:]]+", "-", z)
-  z <- gsub("-+", "-", z)
-  z[z == "testis"] <- "testicle"
-  z[z == "head-and neck"] <- "head-and-neck"
-  z
-}
+CONTEXT_CSV <- file.path(OUT_DIR, "04_context_level_baseline_inputs.csv.gz")
+GENE_TSV <- file.path(OUT_DIR, "03_gene_level_scores_COMPASS_and_baselines.tsv")
+METRICS_TSV <- file.path(OUT_DIR, "06_reference_metrics.tsv")
 
 required <- c(COMPASS_CSV, CONTEXT_CSV, GENE_TSV, METRICS_TSV)
 if (any(!file.exists(required))) {
@@ -116,7 +108,7 @@ methods <- c(
   "EqualMean_missing0",
   "AvailableMean",
   "MeanRank_missing0",
-  "RankProduct_missing0",
+  "RankGeometricMean_missing0",
   "MaxEvidence",
   "StrictConcordance_proxy"
 )
@@ -211,7 +203,7 @@ for (m in methods) {
       k=k,
       top_genes=nrow(pg),
       winner_both_fraction=mean(pg$winner_any_both),
-      winner_single_only_fraction=mean(!pg$winner_any_both),
+      winner_no_both_fraction=mean(!pg$winner_any_both),
       winner_convergent_fraction=mean(pg$winner_any_convergent),
       winner_convergent_highRNA_fraction=mean(pg$winner_any_convergent_highRNA),
       metadata_join_failure_fraction=mean(pg$winning_context_n==0)
@@ -227,8 +219,8 @@ for (m in methods) {
 priority_summary <- bind_rows(summary_rows)
 priority_detail <- bind_rows(detail_rows)
 
-write_tsv(priority_summary, file.path(OUT_DIR,"01_topK_winning_context_quality.tsv"))
-write_tsv(priority_detail, file.path(OUT_DIR,"02_top500_winning_context_detail.tsv"))
+write_tsv(priority_summary, file.path(AUDIT_OUT_DIR,"01_topK_winning_context_quality.tsv"))
+write_tsv(priority_detail, file.path(AUDIT_OUT_DIR,"02_top500_winning_context_detail.tsv"))
 
 # ------------------------
 # "Any concordant context" (less strict than winning-context concordance)
@@ -262,7 +254,7 @@ for (m in methods) {
     )
   }
 }
-write_tsv(bind_rows(any_rows), file.path(OUT_DIR,"03_topK_any_concordant_context.tsv"))
+write_tsv(bind_rows(any_rows), file.path(AUDIT_OUT_DIR,"03_topK_any_concordant_context.tsv"))
 
 # ------------------------
 # Top-K Jaccard overlap with COMPASS
@@ -293,7 +285,7 @@ for (k in TOP_K) {
     )
   }
 }
-write_tsv(bind_rows(jrows), file.path(OUT_DIR,"04_topK_jaccard_vs_COMPASS.tsv"))
+write_tsv(bind_rows(jrows), file.path(AUDIT_OUT_DIR,"04_topK_jaccard_vs_COMPASS.tsv"))
 
 # ------------------------
 # Performance / evidence-quality trade-off table
@@ -303,7 +295,7 @@ q500 <- priority_summary %>%
   select(
     method,
     winner_both_fraction,
-    winner_single_only_fraction,
+    winner_no_both_fraction,
     winner_convergent_fraction,
     winner_convergent_highRNA_fraction
   )
@@ -312,7 +304,7 @@ tradeoff <- metrics %>%
   inner_join(q500, by="method") %>%
   arrange(reference_set, desc(ROC_AUC))
 
-write_tsv(tradeoff, file.path(OUT_DIR,"05_performance_vs_evidence_quality.tsv"))
+write_tsv(tradeoff, file.path(AUDIT_OUT_DIR,"05_performance_vs_evidence_quality.tsv"))
 
 cat("\nPriority audit completed.\n")
 cat("Return the entire priority_audit_output folder.\n")

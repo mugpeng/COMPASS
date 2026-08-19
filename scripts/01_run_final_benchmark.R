@@ -15,7 +15,14 @@
 # check fails materially, baseline comparisons should NOT be interpreted yet.
 # ============================================================================
 
+if (!file.exists("config.R")) {
+  stop(
+    "Missing config.R. Copy config.R.example to config.R and fill in your ",
+    "local paths / parameters.\n  cp config.R.example config.R"
+  )
+}
 source("config.R")
+source("scripts/utils.R")
 
 required_pkgs <- c("data.table", "dplyr", "tidyr", "readr", "pROC", "ggplot2")
 missing_pkgs <- required_pkgs[
@@ -53,65 +60,9 @@ die_if_missing <- function(path, label = basename(path)) {
   if (!file.exists(path)) stop("Missing required file: ", label, "\nExpected: ", path)
 }
 
-normalize_gene <- function(x) toupper(trimws(as.character(x)))
-
-normalize_species <- function(x) {
-  z <- tolower(trimws(as.character(x)))
-  z[z %in% c("hs", "hg38", "homo sapiens", "homo_sapiens")] <- "human"
-  z[z %in% c("mm", "mm10", "mm39", "mus musculus", "mus_musculus")] <- "mouse"
-  z
-}
-
-normalize_status <- function(x) tolower(trimws(as.character(x)))
-
-normalize_tissue <- function(x) {
-  z <- tolower(trimws(as.character(x)))
-  z <- gsub("_", "-", z, fixed = TRUE)
-  z <- gsub("[[:space:]]+", "-", z)
-  z <- gsub("-+", "-", z)
-  z[z == "testis"] <- "testicle"
-  z[z == "head-and neck"] <- "head-and-neck"
-  z
-}
-
-load_rda_list <- function(path) {
-  e <- new.env(parent = emptyenv())
-  nm <- load(path, envir = e)
-  mget(nm, envir = e, inherits = FALSE)
-}
-
-require_cols <- function(df, cols, label) {
-  miss <- setdiff(cols, names(df))
-  if (length(miss) > 0) {
-    stop(label, " missing columns: ", paste(miss, collapse = ", "))
-  }
-}
-
-read_gmt_genes <- function(path) {
-  ln <- readLines(path, warn = FALSE)
-  ln <- ln[nchar(ln) > 0][1]
-  normalize_gene(strsplit(ln, "\t")[[1]][-(1:2)])
-}
-
-rna_conf_score <- function(x) {
-  dplyr::case_when(
-    tolower(as.character(x)) == "high" ~ 1.0,
-    tolower(as.character(x)) == "medium" ~ 0.4,
-    tolower(as.character(x)) == "low" ~ 0.2,
-    TRUE ~ 0
-  )
-}
-
-chip_bind_score <- function(x) {
-  dplyr::case_when(
-    as.character(x) == "High confidence binding" ~ 1.0,
-    as.character(x) == "Medium-high confidence" ~ 0.8,
-    as.character(x) == "Medium confidence" ~ 0.4,
-    as.character(x) == "Low-medium confidence" ~ 0.3,
-    as.character(x) == "Low confidence" ~ 0.15,
-    TRUE ~ 0
-  )
-}
+# ============================================================================
+# Script-specific helpers
+# ============================================================================
 
 auc_ci_thesis <- function(labels, scores, n = THESIS_ROC_BOOT_N) {
   r <- pROC::roc(
@@ -137,46 +88,41 @@ auc_ci_thesis <- function(labels, scores, n = THESIS_ROC_BOOT_N) {
   )
 }
 
-average_precision_grouped <- function(y, score) {
-  ok <- is.finite(score) & !is.na(y)
-  y <- as.integer(y[ok])
-  score <- score[ok]
-  npos <- sum(y == 1)
-  if (npos == 0) return(NA_real_)
-
-  o <- order(score, decreasing = TRUE)
-  y <- y[o]
-  score <- score[o]
-
-  grp <- cumsum(c(TRUE, diff(score) != 0))
-  pos_by <- as.numeric(tapply(y, grp, sum))
-  n_by <- as.numeric(tapply(y, grp, length))
-
-  cum_pos <- cumsum(pos_by)
-  cum_n <- cumsum(n_by)
-  precision <- cum_pos / cum_n
-  recall <- cum_pos / npos
-  delta_recall <- c(recall[1], diff(recall))
-
-  sum(delta_recall * precision)
+auc_ci_journal <- function(labels, scores, n = JOURNAL_ROC_BOOT_N) {
+  r <- pROC::roc(
+    labels, scores,
+    levels = c(0, 1),
+    direction = "<",
+    quiet = TRUE
+  )
+  ci <- as.numeric(
+    pROC::ci.auc(
+      r,
+      method = "bootstrap",
+      boot.n = n,
+      boot.stratified = FALSE,
+      progress = "none"
+    )
+  )
+  list(
+    auc = as.numeric(pROC::auc(r)),
+    lo = ci[1],
+    hi = ci[3]
+  )
 }
 
 topk_metrics <- function(gene, y, score, k) {
   kk <- min(as.integer(k), length(score))
-  # deterministic tie-breaking only for Top-K extraction
   o <- order(-score, gene)
   idx <- o[seq_len(kk)]
   tp <- sum(y[idx] == 1)
   prevalence <- mean(y == 1)
-  precision <- tp / kk
-  recall <- tp / sum(y == 1)
-  enrichment <- precision / prevalence
   tibble(
     k = kk,
     true_positives = tp,
-    precision = precision,
-    recall = recall,
-    enrichment = enrichment
+    precision = tp / kk,
+    recall = tp / sum(y == 1),
+    enrichment = (tp / kk) / prevalence
   )
 }
 
@@ -614,7 +560,7 @@ context <- full_join(
 
     # Scale-robust rank baselines within tissue.
     MeanRank_missing0 = 0.50 * rna_rank + 0.50 * chip_rank,
-    RankProduct_missing0 = sqrt(pmax(rna_rank, 0) * pmax(chip_rank, 0)),
+    RankGeometricMean_missing0 = sqrt(pmax(rna_rank, 0) * pmax(chip_rank, 0)),
 
     # Very permissive single-best-evidence baseline.
     MaxEvidence = pmax(rna_zero, chip_zero),
@@ -636,7 +582,7 @@ baseline_cols <- c(
   "EqualMean_missing0",
   "AvailableMean",
   "MeanRank_missing0",
-  "RankProduct_missing0",
+  "RankGeometricMean_missing0",
   "MaxEvidence",
   "StrictConcordance_proxy"
 )
