@@ -50,3 +50,30 @@ average_precision_grouped <- function(y, score) {
 
   sum(delta_recall * precision)
 }
+
+require_cols <- function(df, cols, label) {
+  miss <- setdiff(cols, names(df))
+  if (length(miss) > 0) {
+    stop(label, " missing columns: ", paste(miss, collapse = ", "))
+  }
+}
+
+rna_conf_score <- function(x) {
+  dplyr::case_when(
+    tolower(as.character(x)) == "high"   ~ 1.0,
+    tolower(as.character(x)) == "medium" ~ 0.4,
+    tolower(as.character(x)) == "low"    ~ 0.2,
+    TRUE                                 ~ 0
+  )
+}
+
+chip_bind_score <- function(x) {
+  dplyr::case_when(
+    as.character(x) == "High confidence binding"   ~ 1.0,
+    as.character(x) == "Medium-high confidence"     ~ 0.8,
+    as.character(x) == "Medium confidence"          ~ 0.4,
+    as.character(x) == "Low-medium confidence"      ~ 0.3,
+    as.character(x) == "Low confidence"             ~ 0.15,
+    TRUE                                            ~ 0
+  )
+}
